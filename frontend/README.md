@@ -1,4 +1,4 @@
-# Frontend — Rentify Floor Plan Editor
+# Frontend — Floor Plan Editor
 
 Next.js приложение для загрузки PDF планов и рисования комнат.
 

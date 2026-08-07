@@ -1,4 +1,4 @@
-# Инструкция по тестированию — Rentify Floor Plan Editor
+# Инструкция по тестированию — Floor Plan Editor
 
 Полный сценарий: backend + frontend + загрузка PDF + рисование комнат.
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Rentify Floor Plan Editor",
+  title: "Floor Plan Editor",
   description: "Digitize building floor plans",
 };
 

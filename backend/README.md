@@ -1,4 +1,4 @@
-# Backend — Rentify Floor Plan Editor
+# Backend — Floor Plan Editor
 
 Spring Boot REST API для редактора планов этажей.
 

@@ -1,10 +1,10 @@
-# Rentify Floor Plan Editor PRD
+# Floor Plan Editor PRD
 
 ## Project Overview
 
-Develop an internal **Floor Plan Editor** for Rentify that allows landlords and property managers to upload a 2D floor plan (PDF), digitize rooms by drawing polygons, and connect those rooms with rentable units and lease contracts.
+Develop an internal **Floor Plan Editor** that allows landlords and property managers to upload a 2D floor plan (PDF), digitize rooms by drawing polygons, and connect those rooms with rentable units and lease contracts.
 
-The editor must become the foundation for an interactive building map inside Rentify.
+The editor must become the foundation for an interactive building map of a property management platform.
 
 The long-term goal is to support:
 
@@ -705,4 +705,4 @@ Follow these rules strictly.
 
 The editor should allow a property manager to upload any building floor plan and digitize an entire floor without external software.
 
-The resulting floor becomes fully interactive and integrated into Rentify's leasing system.
+The resulting floor becomes fully interactive and integrated with the leasing system.
