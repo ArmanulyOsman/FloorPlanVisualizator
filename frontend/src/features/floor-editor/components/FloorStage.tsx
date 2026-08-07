@@ -3,35 +3,38 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type Konva from "konva";
 import { Layer, Stage } from "react-konva";
+import { CalibrationPanel } from "@/features/floor-editor/components/CalibrationPanel";
+import { PdfPreview } from "@/features/floor-editor/components/PdfPreview";
 import { DrawingLayer } from "@/features/floor-editor/components/layers/DrawingLayer";
 import { SelectionLayer } from "@/features/floor-editor/components/layers/SelectionLayer";
 import { SpaceLayer } from "@/features/floor-editor/components/layers/SpaceLayer";
 import { useFloorPreview } from "@/features/floor-editor/hooks/useFloorPreview";
+import { useSnapping } from "@/features/floor-editor/hooks/useSnapping";
+import { useSpaceEditing } from "@/features/floor-editor/hooks/useSpaceEditing";
 import { useEditorStore } from "@/features/floor-editor/store/editorStore";
 import { denormalizePoint } from "@/lib/coordinates";
-import { closeToPoint, isPointInPolygon, snapToVertex } from "@/lib/geometry";
-import {
-  closestEdgeIndex,
-  insertPointOnEdge,
-  polygonAreaM2,
-  removeVertex,
-  translatePolygon,
-} from "@/lib/polygon-geometry";
+import { closeToPoint, isPointInPolygon } from "@/lib/geometry";
 import { validatePolygon } from "@/lib/polygon-validation";
-import { screenThresholdToPage, screenToNormalized, computeFitViewport } from "@/lib/viewport";
-import { updateFloor } from "@/shared/api/floors";
-import { Button } from "@/shared/ui/Button";
-import { Input } from "@/shared/ui/Input";
-import type { Point } from "@/shared/types";
+import { screenThresholdToPage, screenToNormalized } from "@/lib/viewport";
+import { SpinnerIcon } from "@/shared/ui/icons";
+import { toast } from "@/shared/ui/toast";
+import type { Point, Space } from "@/shared/types";
 
-type FloorStageProps = {
-  onReadyFit: (fit: (mode?: "width" | "page") => void) => void;
-};
+const CLOSE_SCREEN_PX = 12;
+const PAN_TOLERANCE_PX = 4;
+const DOUBLE_CLICK_MS = 400;
+const DOUBLE_CLICK_PX = 6;
 
-const SNAP_SCREEN_PX = 8;
-const CLOSE_SCREEN_PX = 10;
+function hitTest(spaces: Space[], point: Point): Space | null {
+  for (let i = spaces.length - 1; i >= 0; i--) {
+    if (spaces[i].status !== "Hidden" && isPointInPolygon(point, spaces[i].polygon)) {
+      return spaces[i];
+    }
+  }
+  return null;
+}
 
-export function FloorStage({ onReadyFit }: FloorStageProps) {
+export function FloorStage() {
   const floor = useEditorStore((state) => state.floor);
   const spaces = useEditorStore((state) => state.spaces);
   const mode = useEditorStore((state) => state.mode);
@@ -39,65 +42,52 @@ export function FloorStage({ onReadyFit }: FloorStageProps) {
   const draftPolygon = useEditorStore((state) => state.draftPolygon);
   const draftCursor = useEditorStore((state) => state.draftCursor);
   const selectedSpaceId = useEditorStore((state) => state.selectedSpaceId);
+  const hoveredSpaceId = useEditorStore((state) => state.hoveredSpaceId);
   const calibratePoints = useEditorStore((state) => state.calibratePoints);
   const pageWidth = useEditorStore((state) => state.pageWidth);
   const pageHeight = useEditorStore((state) => state.pageHeight);
+  const stageSize = useEditorStore((state) => state.stageSize);
+  const isPanKeyDown = useEditorStore((state) => state.isPanKeyDown);
 
-  const setViewport = useEditorStore((state) => state.setViewport);
+  const setStageSize = useEditorStore((state) => state.setStageSize);
   const panBy = useEditorStore((state) => state.panBy);
   const zoomAt = useEditorStore((state) => state.zoomAt);
+  const fitView = useEditorStore((state) => state.fitView);
   const addDraftPoint = useEditorStore((state) => state.addDraftPoint);
   const setDraftCursor = useEditorStore((state) => state.setDraftCursor);
   const selectSpace = useEditorStore((state) => state.selectSpace);
+  const hoverSpace = useEditorStore((state) => state.hoverSpace);
   const setMode = useEditorStore((state) => state.setMode);
   const finishDraft = useEditorStore((state) => state.finishDraft);
   const addCalibratePoint = useEditorStore((state) => state.addCalibratePoint);
-  const clearCalibrate = useEditorStore((state) => state.clearCalibrate);
-  const setError = useEditorStore((state) => state.setError);
-  const setFloor = useEditorStore((state) => state.setFloor);
-  const updateSpaceLocal = useEditorStore((state) => state.updateSpaceLocal);
-  const pushHistory = useEditorStore((state) => state.pushHistory);
-  const markDirty = useEditorStore((state) => state.markDirty);
 
   const { imageUrl, loading, error: previewError, ready, onImageLoad, onImageError } =
     useFloorPreview(floor);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
-  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
-  const isPanning = useRef(false);
+  const panning = useRef(false);
+  const panMoved = useRef(false);
+  const pendingDeselect = useRef(false);
   const lastPointer = useRef({ x: 0, y: 0 });
-  const polygonDragStarted = useRef(false);
-  const [calibrateDistance, setCalibrateDistance] = useState("10");
+  const lastClick = useRef({ time: 0, x: 0, y: 0 });
+  const fittedFloorId = useRef<string | null>(null);
+  const [isPanningNow, setIsPanningNow] = useState(false);
 
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) ?? null;
+  const resolvePoint = useSnapping();
+  const editing = useSpaceEditing(selectedSpace);
 
   const measure = useCallback(() => {
     const element = wrapperRef.current;
     if (!element) {
       return;
     }
-    const width = Math.max(Math.floor(element.clientWidth), 0);
-    const height = Math.max(Math.floor(element.clientHeight), 0);
-    setStageSize((prev) =>
-      prev.width === width && prev.height === height ? prev : { width, height },
-    );
-  }, []);
-
-  const fitViewport = useCallback(
-    (fitMode: "width" | "page" = "width") => {
-      const element = wrapperRef.current;
-      const width = element?.clientWidth ?? stageSize.width;
-      const height = element?.clientHeight ?? stageSize.height;
-
-      if (!floor || pageWidth <= 1 || pageHeight <= 1 || width < 32 || height < 32) {
-        return;
-      }
-
-      setViewport(computeFitViewport(width, height, pageWidth, pageHeight, fitMode, 4));
-    },
-    [floor, pageWidth, pageHeight, stageSize.width, stageSize.height, setViewport],
-  );
+    setStageSize({
+      width: Math.max(Math.floor(element.clientWidth), 0),
+      height: Math.max(Math.floor(element.clientHeight), 0),
+    });
+  }, [setStageSize]);
 
   useLayoutEffect(() => {
     measure();
@@ -105,63 +95,29 @@ export function FloorStage({ onReadyFit }: FloorStageProps) {
     if (!element) {
       return;
     }
-    const observer = new ResizeObserver(() => measure());
+    const observer = new ResizeObserver(measure);
     observer.observe(element);
-    window.addEventListener("resize", measure);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", measure);
-    };
+    return () => observer.disconnect();
   }, [measure, floor?.id]);
 
+  // Fit once per plan. Later resizes must not throw away the zoom the user chose.
   useEffect(() => {
-    onReadyFit(fitViewport);
-  }, [fitViewport, onReadyFit]);
+    const canFit =
+      ready && pageWidth > 1 && pageHeight > 1 && stageSize.width >= 32 && stageSize.height >= 32;
 
-  useEffect(() => {
-    if (ready && pageWidth > 1 && pageHeight > 1 && stageSize.width >= 32 && stageSize.height >= 32) {
-      fitViewport("width");
+    if (canFit && floor?.id && fittedFloorId.current !== floor.id) {
+      fittedFloorId.current = floor.id;
+      fitView("page");
     }
-  }, [ready, floor?.id, pageWidth, pageHeight, stageSize.width, stageSize.height, fitViewport]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, floor?.id, pageWidth, pageHeight, stageSize.width, stageSize.height]);
 
-  if (!floor) {
-    return (
-      <div className="flex h-full w-full items-center justify-center text-sm text-zinc-200">
-        Waiting for floor data...
-      </div>
-    );
-  }
-
-  const getNormalizedFromStage = (stage: Konva.Stage): Point | null => {
+  const getNormalized = (stage: Konva.Stage): Point | null => {
     const pointer = stage.getPointerPosition();
     if (!pointer) {
       return null;
     }
     return screenToNormalized(pointer.x, pointer.y, viewport, pageWidth, pageHeight);
-  };
-
-  const allVerticesPage = spaces.flatMap((space) =>
-    space.polygon.map((point) => denormalizePoint(point, pageWidth, pageHeight)),
-  );
-
-  const resolvePoint = (normalized: Point, exclude?: Point): Point => {
-    const pagePoint = denormalizePoint(normalized, pageWidth, pageHeight);
-    const threshold = screenThresholdToPage(SNAP_SCREEN_PX, viewport);
-    const snapped = snapToVertex(pagePoint, allVerticesPage, threshold);
-
-    if (snapped && exclude) {
-      const excludePage = denormalizePoint(exclude, pageWidth, pageHeight);
-      if (closeToPoint(snapped, excludePage, threshold / 2)) {
-        return normalized;
-      }
-    }
-
-    return snapped
-      ? { x: snapped.x / pageWidth, y: snapped.y / pageHeight }
-      : {
-          x: Math.min(Math.max(normalized.x, 0), 1),
-          y: Math.min(Math.max(normalized.y, 0), 1),
-        };
   };
 
   const handleWheel = (event: Konva.KonvaEventObject<WheelEvent>) => {
@@ -171,46 +127,53 @@ export function FloorStage({ onReadyFit }: FloorStageProps) {
     if (!pointer) {
       return;
     }
-    zoomAt(pointer.x, pointer.y, event.evt.deltaY > 0 ? 0.9 : 1.1);
+
+    const { deltaX, deltaY, ctrlKey, metaKey, shiftKey } = event.evt;
+
+    if (shiftKey && !ctrlKey && !metaKey) {
+      panBy(-deltaY - deltaX, 0);
+      return;
+    }
+
+    // Trackpad two-finger panning reports horizontal delta; wheels and pinch gestures zoom.
+    if (!ctrlKey && !metaKey && Math.abs(deltaX) > 0) {
+      panBy(-deltaX, -deltaY);
+      return;
+    }
+
+    const factor = Math.min(Math.max(Math.exp(-deltaY * 0.002), 0.8), 1.25);
+    zoomAt(pointer.x, pointer.y, factor);
   };
 
-  const handleStageMouseDown = (event: Konva.KonvaEventObject<MouseEvent>) => {
+  const startPan = (stage: Konva.Stage) => {
+    panning.current = true;
+    panMoved.current = false;
+    lastPointer.current = stage.getPointerPosition() ?? { x: 0, y: 0 };
+    setIsPanningNow(true);
+  };
+
+  const handleMouseDown = (event: Konva.KonvaEventObject<MouseEvent>) => {
     const stage = event.target.getStage();
     if (!stage) {
       return;
     }
 
-    // Pan when clicking empty stage background
-    const clickedStage = event.target === stage;
-    const isMiddle = event.evt.button === 1;
-    const isAltPan = event.evt.button === 0 && event.evt.altKey;
-    const isViewPan = mode === "view" && event.evt.button === 0;
+    const onBackground = event.target === stage;
+    const forcedPan =
+      event.evt.button === 1 || (event.evt.button === 0 && (event.evt.altKey || isPanKeyDown));
 
-    if (isMiddle || isAltPan || (isViewPan && clickedStage)) {
-      isPanning.current = true;
-      lastPointer.current = stage.getPointerPosition() ?? { x: 0, y: 0 };
-      if (!clickedStage) {
-        return;
-      }
-    }
-
-    if (!clickedStage && mode !== "draw" && mode !== "calibrate") {
+    if (forcedPan) {
+      event.evt.preventDefault();
+      startPan(stage);
       return;
     }
 
-    const normalized = getNormalizedFromStage(stage);
+    if (event.evt.button !== 0) {
+      return;
+    }
+
+    const normalized = getNormalized(stage);
     if (!normalized) {
-      return;
-    }
-
-    if (mode === "view" || mode === "select") {
-      const hit = [...spaces].reverse().find((space) => isPointInPolygon(normalized, space.polygon));
-      if (hit) {
-        selectSpace(hit.id);
-        setMode("select");
-      } else if (clickedStage) {
-        selectSpace(null);
-      }
       return;
     }
 
@@ -220,232 +183,140 @@ export function FloorStage({ onReadyFit }: FloorStageProps) {
     }
 
     if (mode === "draw") {
-      if (draftPolygon.length >= 3) {
-        const firstPage = denormalizePoint(draftPolygon[0], pageWidth, pageHeight);
-        const clickPage = denormalizePoint(normalized, pageWidth, pageHeight);
-        if (closeToPoint(firstPage, clickPage, screenThresholdToPage(CLOSE_SCREEN_PX, viewport))) {
-          const closed = [...draftPolygon];
-          const validationError = validatePolygon(closed);
-          if (validationError) {
-            setError(validationError);
-            return;
-          }
-          useEditorStore.setState({ draftPolygon: closed });
-          finishDraft();
-          return;
-        }
-      }
+      handleDrawClick(normalized, stage.getPointerPosition());
+      return;
+    }
 
-      addDraftPoint(resolvePoint(normalized));
+    const hit = hitTest(spaces, normalized);
+    if (hit) {
+      selectSpace(hit.id);
+      if (mode === "view") {
+        setMode("select");
+      }
+    }
+
+    // Dragging the background pans; a click without movement clears the selection.
+    if (onBackground) {
+      pendingDeselect.current = !hit;
+      startPan(stage);
     }
   };
 
-  const handleStageMouseMove = () => {
+  const handleDrawClick = (normalized: Point, pointer: Point | null) => {
+    // Konva's own dblclick ignores distance, which would close a polygon while the user is
+    // still clicking corners quickly. Require the two clicks to land on the same spot.
+    const now = Date.now();
+    const repeated =
+      pointer !== null &&
+      now - lastClick.current.time < DOUBLE_CLICK_MS &&
+      Math.hypot(pointer.x - lastClick.current.x, pointer.y - lastClick.current.y) <
+        DOUBLE_CLICK_PX;
+
+    lastClick.current = { time: now, x: pointer?.x ?? 0, y: pointer?.y ?? 0 };
+
+    if (repeated) {
+      if (draftPolygon.length >= 3) {
+        completeDraft(draftPolygon);
+      }
+      return;
+    }
+
+    if (draftPolygon.length >= 3) {
+      const first = denormalizePoint(draftPolygon[0], pageWidth, pageHeight);
+      const click = denormalizePoint(normalized, pageWidth, pageHeight);
+      if (closeToPoint(first, click, screenThresholdToPage(CLOSE_SCREEN_PX, viewport))) {
+        completeDraft(draftPolygon);
+        return;
+      }
+    }
+
+    addDraftPoint(resolvePoint(normalized));
+  };
+
+  const completeDraft = (polygon: Point[]) => {
+    const validationError = validatePolygon(polygon);
+    if (validationError) {
+      toast(validationError, "error");
+      return;
+    }
+    finishDraft(polygon);
+  };
+
+  const handleMouseMove = () => {
     const stage = stageRef.current;
-    if (!stage) {
+    const pointer = stage?.getPointerPosition();
+    if (!stage || !pointer) {
       return;
     }
 
-    const pointer = stage.getPointerPosition();
-    if (!pointer) {
-      return;
-    }
-
-    if (isPanning.current) {
-      panBy(pointer.x - lastPointer.current.x, pointer.y - lastPointer.current.y);
+    if (panning.current) {
+      const dx = pointer.x - lastPointer.current.x;
+      const dy = pointer.y - lastPointer.current.y;
+      if (Math.abs(dx) > PAN_TOLERANCE_PX || Math.abs(dy) > PAN_TOLERANCE_PX) {
+        panMoved.current = true;
+      }
+      panBy(dx, dy);
       lastPointer.current = pointer;
       return;
     }
 
     if (mode === "draw" || mode === "calibrate") {
-      setDraftCursor(getNormalizedFromStage(stage));
-    }
-  };
-
-  const handleStageMouseUp = () => {
-    isPanning.current = false;
-  };
-
-  const handleSpaceClick = (spaceId: string) => {
-    selectSpace(spaceId);
-    if (mode === "view") {
-      setMode("select");
-    }
-  };
-
-  const applyCalibration = async () => {
-    if (calibratePoints.length !== 2) {
-      setError("Select exactly two points on the plan");
+      setDraftCursor(getNormalized(stage));
       return;
     }
 
-    const a = denormalizePoint(calibratePoints[0], pageWidth, pageHeight);
-    const b = denormalizePoint(calibratePoints[1], pageWidth, pageHeight);
-    const pixelDistance = Math.hypot(a.x - b.x, a.y - b.y);
-    const meters = Number(calibrateDistance);
-
-    if (!meters || meters <= 0) {
-      setError("Distance must be greater than zero");
-      return;
-    }
-
-    try {
-      const updated = await updateFloor(floor.id, { metersPerPixel: meters / pixelDistance });
-      setFloor(updated);
-      clearCalibrate();
-      setMode("view");
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Calibration failed");
-    }
+    const normalized = getNormalized(stage);
+    hoverSpace(normalized ? (hitTest(spaces, normalized)?.id ?? null) : null);
   };
 
-  const refreshSelectedGeometry = (polygon: Point[]) => {
-    if (!selectedSpace) {
-      return;
+  const endPan = () => {
+    if (pendingDeselect.current && !panMoved.current) {
+      selectSpace(null);
     }
-    const geometricArea = polygonAreaM2(polygon, pageWidth, pageHeight, floor.metersPerPixel);
-    updateSpaceLocal({ ...selectedSpace, polygon, geometricArea });
+    pendingDeselect.current = false;
+    panning.current = false;
+    panMoved.current = false;
+    setIsPanningNow(false);
   };
 
-  const handleVertexDragMove = (index: number, point: Point) => {
-    if (!selectedSpace) {
-      return;
-    }
-    const resolved = resolvePoint(point, selectedSpace.polygon[index]);
-    refreshSelectedGeometry(
-      selectedSpace.polygon.map((vertex, i) => (i === index ? resolved : vertex)),
-    );
+  const handleMouseLeave = () => {
+    endPan();
+    hoverSpace(null);
+    setDraftCursor(null);
   };
 
-  const handleVertexDragEnd = () => {
-    if (!selectedSpace) {
-      return;
+  const cursor = (() => {
+    if (isPanningNow) {
+      return "grabbing";
     }
-    pushHistory();
-    markDirty(selectedSpace.id);
-  };
-
-  const handleVertexContextMenu = (index: number) => {
-    if (!selectedSpace || selectedSpace.polygon.length <= 3) {
-      return;
+    if (isPanKeyDown) {
+      return "grab";
     }
-    refreshSelectedGeometry(removeVertex(selectedSpace.polygon, index));
-    pushHistory();
-    markDirty(selectedSpace.id);
-  };
-
-  const handlePolygonDragStart = () => {
-    polygonDragStarted.current = true;
-  };
-
-  const handlePolygonDragMove = (delta: Point) => {
-    if (!selectedSpace) {
-      return;
+    if (mode === "draw" || mode === "calibrate") {
+      return "crosshair";
     }
-    refreshSelectedGeometry(translatePolygon(selectedSpace.polygon, delta));
-  };
-
-  const handlePolygonDragEnd = () => {
-    if (!selectedSpace || !polygonDragStarted.current) {
-      return;
+    if (hoveredSpaceId) {
+      return "pointer";
     }
-    polygonDragStarted.current = false;
-    pushHistory();
-    markDirty(selectedSpace.id);
-  };
+    return mode === "view" ? "grab" : "default";
+  })();
 
-  const handleEdgeDblClick = (point: Point) => {
-    if (!selectedSpace) {
-      return;
-    }
-    const edgeIndex = closestEdgeIndex(
-      point,
-      selectedSpace.polygon,
-      pageWidth,
-      pageHeight,
-      screenThresholdToPage(12, viewport),
-    );
-    if (edgeIndex === null) {
-      return;
-    }
-    refreshSelectedGeometry(insertPointOnEdge(selectedSpace.polygon, edgeIndex, point));
-    pushHistory();
-    markDirty(selectedSpace.id);
-  };
-
-  const cursor =
-    mode === "draw" || mode === "calibrate"
-      ? "crosshair"
-      : mode === "view"
-        ? "grab"
-        : "default";
+  if (!floor) {
+    return null;
+  }
 
   return (
-    <div ref={wrapperRef} className="relative h-full w-full overflow-hidden" style={{ cursor }}>
-      {previewError && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center p-6">
-          <div className="max-w-md rounded-xl bg-red-950 px-4 py-3 text-center text-sm text-red-100">
-            {previewError}
-          </div>
-        </div>
-      )}
-
-      {loading && !ready && !previewError && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-zinc-900/80 text-sm text-zinc-200">
-          Loading floor plan...
-        </div>
-      )}
-
-      {mode === "calibrate" && (
-        <div className="absolute left-4 top-4 z-30 flex items-end gap-2 rounded-xl border border-zinc-700 bg-zinc-950/95 p-3">
-          <Input
-            label="Known distance (m)"
-            type="number"
-            step="0.01"
-            value={calibrateDistance}
-            onChange={(event) => setCalibrateDistance(event.target.value)}
-          />
-          <Button variant="primary" onClick={applyCalibration}>
-            Apply
-          </Button>
-          <Button variant="ghost" onClick={clearCalibrate}>
-            Reset
-          </Button>
-        </div>
-      )}
-
-      {/* PDF preview — always keep mounted after URL is set */}
+    <div ref={wrapperRef} className="editor-canvas relative h-full w-full overflow-hidden" style={{ cursor }}>
       {imageUrl && (
-        <div
-          className="pointer-events-none absolute left-0 top-0 origin-top-left will-change-transform"
-          style={{
-            width: pageWidth > 1 ? pageWidth : "auto",
-            height: pageHeight > 1 ? pageHeight : "auto",
-            transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
-          }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageUrl}
-            alt="Floor plan"
-            draggable={false}
-            className="block max-w-none select-none bg-white shadow-lg"
-            style={
-              pageWidth > 1 && pageHeight > 1
-                ? { width: pageWidth, height: pageHeight }
-                : { maxWidth: "100%" }
-            }
-            onLoad={(event) => onImageLoad(event.currentTarget)}
-            onError={onImageError}
-            ref={(node) => {
-              // Cached images may already be complete before onLoad binds.
-              if (node?.complete && node.naturalWidth > 0 && !ready) {
-                onImageLoad(node);
-              }
-            }}
-          />
-        </div>
+        <PdfPreview
+          imageUrl={imageUrl}
+          pageWidth={pageWidth}
+          pageHeight={pageHeight}
+          viewport={viewport}
+          ready={ready}
+          onImageLoad={onImageLoad}
+          onImageError={onImageError}
+        />
       )}
 
       {stageSize.width > 0 && stageSize.height > 0 && (
@@ -454,36 +325,31 @@ export function FloorStage({ onReadyFit }: FloorStageProps) {
           width={stageSize.width}
           height={stageSize.height}
           onWheel={handleWheel}
-          onMouseDown={handleStageMouseDown}
-          onMouseMove={handleStageMouseMove}
-          onMouseUp={handleStageMouseUp}
-          onMouseLeave={handleStageMouseUp}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={endPan}
+          onMouseLeave={handleMouseLeave}
+          onContextMenu={(event) => event.evt.preventDefault()}
         >
-          <Layer>
+          <Layer listening={false}>
             <SpaceLayer
               spaces={spaces}
               pageWidth={pageWidth}
               pageHeight={pageHeight}
               viewport={viewport}
               selectedSpaceId={selectedSpaceId}
-              onSpaceClick={handleSpaceClick}
+              hoveredSpaceId={hoveredSpaceId}
             />
           </Layer>
 
           <Layer>
             <SelectionLayer
-              space={selectedSpace && (mode === "edit" || mode === "select") ? selectedSpace : null}
+              space={selectedSpace && mode !== "draw" ? selectedSpace : null}
               mode={mode}
               pageWidth={pageWidth}
               pageHeight={pageHeight}
               viewport={viewport}
-              onVertexDragMove={handleVertexDragMove}
-              onVertexDragEnd={handleVertexDragEnd}
-              onVertexContextMenu={handleVertexContextMenu}
-              onPolygonDragStart={handlePolygonDragStart}
-              onPolygonDragMove={handlePolygonDragMove}
-              onPolygonDragEnd={handlePolygonDragEnd}
-              onEdgeDblClick={handleEdgeDblClick}
+              {...editing}
             />
           </Layer>
 
@@ -499,6 +365,23 @@ export function FloorStage({ onReadyFit }: FloorStageProps) {
             />
           </Layer>
         </Stage>
+      )}
+
+      {mode === "calibrate" && <CalibrationPanel />}
+
+      {loading && !ready && !previewError && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-zinc-900/80 text-sm text-zinc-300">
+          <SpinnerIcon className="h-6 w-6" />
+          Rendering floor plan...
+        </div>
+      )}
+
+      {previewError && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center p-6">
+          <div className="max-w-md rounded-xl border border-red-900 bg-red-950/90 px-4 py-3 text-center text-sm text-red-100">
+            {previewError}
+          </div>
+        </div>
       )}
     </div>
   );

@@ -2,14 +2,23 @@
 
 import { useEffect } from "react";
 import { useForm } from "react-hook-form";
-import { createSpace, deleteSpace, updateSpace } from "@/shared/api/spaces";
-import { SPACE_STATUSES, SPACE_TYPES } from "@/features/floor-editor/constants";
+import { removeSpace } from "@/features/floor-editor/actions";
+import {
+  SPACE_STATUSES,
+  SPACE_TYPE_OPTIONS,
+  STATUS_META,
+} from "@/features/floor-editor/constants";
+import { formatArea } from "@/features/floor-editor/format";
 import { useEditorStore } from "@/features/floor-editor/store/editorStore";
 import { polygonAreaM2 } from "@/lib/polygon-geometry";
+import { createSpace, updateSpace } from "@/shared/api/spaces";
 import { Button } from "@/shared/ui/Button";
+import { IconButton } from "@/shared/ui/IconButton";
+import { CloseIcon, NodesIcon, TargetIcon, TrashIcon } from "@/shared/ui/icons";
 import { Input } from "@/shared/ui/Input";
 import { Select } from "@/shared/ui/Select";
-import type { SpaceStatus, SpaceType } from "@/shared/types";
+import { toast } from "@/shared/ui/toast";
+import type { Space, SpaceStatus, SpaceType } from "@/shared/types";
 
 type FormValues = {
   number: string;
@@ -20,6 +29,24 @@ type FormValues = {
   notes: string;
 };
 
+function nextRoomNumber(spaces: Space[]): string {
+  const numeric = spaces
+    .map((space) => Number.parseInt(space.number, 10))
+    .filter((value) => Number.isFinite(value));
+  return String((numeric.length > 0 ? Math.max(...numeric) : 100) + 1);
+}
+
+function toFormValues(space: Space): FormValues {
+  return {
+    number: space.number,
+    name: space.name,
+    type: space.type,
+    status: space.status,
+    rentableArea: space.rentableArea?.toString() ?? "",
+    notes: space.notes ?? "",
+  };
+}
+
 export function PropertiesPanel() {
   const floor = useEditorStore((state) => state.floor);
   const pageWidth = useEditorStore((state) => state.pageWidth);
@@ -29,25 +56,24 @@ export function PropertiesPanel() {
   const pendingCreatePolygon = useEditorStore((state) => state.pendingCreatePolygon);
   const updateSpaceLocal = useEditorStore((state) => state.updateSpaceLocal);
   const addSpaceLocal = useEditorStore((state) => state.addSpaceLocal);
-  const removeSpaceLocal = useEditorStore((state) => state.removeSpaceLocal);
   const selectSpace = useEditorStore((state) => state.selectSpace);
   const cancelCreate = useEditorStore((state) => state.cancelCreate);
   const pushHistory = useEditorStore((state) => state.pushHistory);
-  const setError = useEditorStore((state) => state.setError);
-  const setIsSaving = useEditorStore((state) => state.setIsSaving);
+  const clearDirty = useEditorStore((state) => state.clearDirty);
+  const focusSpace = useEditorStore((state) => state.focusSpace);
   const setMode = useEditorStore((state) => state.setMode);
 
   const space = spaces.find((item) => item.id === selectedSpaceId) ?? null;
   const isCreate = Boolean(pendingCreatePolygon && floor);
-  const geometricPreview =
-    isCreate && pendingCreatePolygon && floor
-      ? polygonAreaM2(pendingCreatePolygon, pageWidth, pageHeight, floor.metersPerPixel)
-      : space?.geometricArea ?? null;
+  const polygon = isCreate ? pendingCreatePolygon : (space?.polygon ?? null);
+
+  const geometricArea =
+    polygon && floor ? polygonAreaM2(polygon, pageWidth, pageHeight, floor.metersPerPixel) : null;
 
   const { register, handleSubmit, reset, formState } = useForm<FormValues>({
     defaultValues: {
-      number: String(spaces.length + 101),
-      name: "New Room",
+      number: "101",
+      name: "",
       type: "Office",
       status: "Available",
       rentableArea: "",
@@ -58,8 +84,8 @@ export function PropertiesPanel() {
   useEffect(() => {
     if (isCreate) {
       reset({
-        number: String(spaces.length + 101),
-        name: "New Room",
+        number: nextRoomNumber(spaces),
+        name: "",
         type: "Office",
         status: "Available",
         rentableArea: "",
@@ -68,21 +94,13 @@ export function PropertiesPanel() {
       return;
     }
 
-    if (!space) {
-      return;
+    if (space) {
+      reset(toFormValues(space));
     }
+    // `spaces` is intentionally excluded: re-running on every polygon drag would discard typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [space?.id, isCreate, reset]);
 
-    reset({
-      number: space.number,
-      name: space.name,
-      type: space.type,
-      status: space.status,
-      rentableArea: space.rentableArea?.toString() ?? "",
-      notes: space.notes ?? "",
-    });
-  }, [space, isCreate, spaces.length, reset]);
-
-  // Hide completely when idle — no empty right column.
   if (!isCreate && !space) {
     return null;
   }
@@ -92,112 +110,172 @@ export function PropertiesPanel() {
       return;
     }
 
-    setIsSaving(true);
-    setError(null);
+    const payload = {
+      number: values.number.trim(),
+      name: values.name.trim(),
+      type: values.type,
+      status: values.status,
+      rentableArea: values.rentableArea ? Number(values.rentableArea) : null,
+      notes: values.notes.trim() || null,
+    };
 
     try {
       if (isCreate && pendingCreatePolygon) {
         const created = await createSpace({
           floorId: floor.id,
-          number: values.number,
-          name: values.name,
-          type: values.type,
-          status: values.status,
           polygon: pendingCreatePolygon,
-          rentableArea: values.rentableArea ? Number(values.rentableArea) : null,
-          notes: values.notes || null,
+          ...payload,
         });
         addSpaceLocal(created);
         pushHistory();
         cancelCreate();
         selectSpace(created.id);
         setMode("select");
+        toast(`Room ${created.number} created`, "success");
       } else if (space) {
-        const updated = await updateSpace(space.id, {
-          number: values.number,
-          name: values.name,
-          type: values.type,
-          status: values.status,
-          rentableArea: values.rentableArea ? Number(values.rentableArea) : null,
-          notes: values.notes || null,
-        });
+        const updated = await updateSpace(space.id, { ...payload, polygon: space.polygon });
         updateSpaceLocal(updated);
+        clearDirty(updated.id);
+        pushHistory();
+        reset(toFormValues(updated));
+        toast("Room saved", "success");
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to save room");
-    } finally {
-      setIsSaving(false);
+      toast(error instanceof Error ? error.message : "Failed to save room", "error");
     }
   });
 
-  const onDelete = async () => {
-    if (!space) {
+  const onClose = () => {
+    if (isCreate) {
+      cancelCreate();
       return;
     }
-
-    if (!window.confirm(`Delete room ${space.number}?`)) {
-      return;
-    }
-
-    setIsSaving(true);
-    setError(null);
-
-    try {
-      await deleteSpace(space.id);
-      removeSpaceLocal(space.id);
-      pushHistory();
-      selectSpace(null);
-      setMode("view");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to delete room");
-    } finally {
-      setIsSaving(false);
-    }
+    selectSpace(null);
   };
 
+  const statusMeta = space ? STATUS_META[space.status] : STATUS_META.Available;
+
   return (
-    <aside className="absolute right-0 top-0 z-40 flex h-full w-64 flex-col border-l border-zinc-800 bg-zinc-950/95 p-4 shadow-2xl backdrop-blur">
-      <h2 className="text-sm font-semibold text-zinc-200">
-        {isCreate ? "New Room" : "Properties"}
-      </h2>
-      {isCreate && pendingCreatePolygon && (
-        <p className="mt-1 text-xs text-zinc-500">
-          Polygon has {pendingCreatePolygon.length} points. Save to add the room.
-        </p>
+    <aside className="animate-panel-in absolute right-0 top-0 z-40 flex h-full w-72 flex-col border-l border-zinc-800 bg-zinc-950/95 shadow-2xl backdrop-blur">
+      <header className="flex items-start justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${statusMeta.dot}`} />
+            <span className="truncate">
+              {isCreate ? "New room" : `${space?.number} · ${space?.name || "Untitled"}`}
+            </span>
+          </h2>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            {isCreate
+              ? `${pendingCreatePolygon?.length ?? 0} corners traced`
+              : `${space?.polygon.length ?? 0} corners`}
+            {formState.isDirty && <span className="ml-1.5 text-amber-400">· unsaved</span>}
+          </p>
+        </div>
+        <IconButton
+          size="sm"
+          tooltipSide="left"
+          icon={<CloseIcon className="h-4 w-4" />}
+          label={isCreate ? "Discard room" : "Close"}
+          shortcut="Esc"
+          onClick={onClose}
+        />
+      </header>
+
+      {space && (
+        <div className="flex gap-1.5 border-b border-zinc-800 px-4 py-2.5">
+          <Button
+            size="sm"
+            variant="subtle"
+            icon={<TargetIcon className="h-3.5 w-3.5" />}
+            onClick={() => focusSpace(space.id)}
+          >
+            Zoom to
+          </Button>
+          <Button
+            size="sm"
+            variant="subtle"
+            icon={<NodesIcon className="h-3.5 w-3.5" />}
+            onClick={() => setMode("edit")}
+          >
+            Edit shape
+          </Button>
+        </div>
       )}
 
-      <form onSubmit={onSubmit} className="mt-4 flex flex-1 flex-col gap-3 overflow-y-auto">
-        <Input label="Room Number" {...register("number", { required: true })} />
-        <Input label="Room Name" {...register("name", { required: true })} />
-        <Select label="Type" options={SPACE_TYPES} {...register("type")} />
-        <Select label="Status" options={SPACE_STATUSES} {...register("status")} />
-        <Input
-          label="Geometric Area (m²)"
-          value={geometricPreview?.toFixed(2) ?? "—"}
-          readOnly
-          disabled
-        />
-        <Input label="Rentable Area (m²)" type="number" step="0.01" {...register("rentableArea")} />
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="text-zinc-400">Notes</span>
-          <textarea
-            className="min-h-24 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 outline-none ring-blue-500 focus:ring-2"
-            {...register("notes")}
-          />
-        </label>
+      <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+        <div className="scrollbar-thin flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="Number"
+              autoFocus={isCreate}
+              error={formState.errors.number ? "Required" : undefined}
+              {...register("number", { required: true })}
+            />
+            <Input label="Name" placeholder="Office A" {...register("name")} />
+          </div>
 
-        <div className="mt-auto flex gap-2 pt-4">
-          <Button type="submit" variant="primary" disabled={formState.isSubmitting}>
-            {isCreate ? "Create Room" : "Save"}
+          <Select label="Type" options={SPACE_TYPE_OPTIONS} {...register("type")} />
+          <Select label="Status" options={SPACE_STATUSES} {...register("status")} />
+
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-500">Geometric area</span>
+              <span className="font-medium text-zinc-200">
+                {formatArea(geometricArea) ?? "Needs calibration"}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-zinc-600">
+              Calculated from the polygon and the floor scale.
+            </p>
+          </div>
+
+          <Input
+            label="Rentable area"
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="0.00"
+            suffix="m²"
+            {...register("rentableArea")}
+          />
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">Notes</span>
+            <textarea
+              rows={3}
+              placeholder="Anything worth remembering about this room"
+              className="scrollbar-thin resize-y rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none transition-colors placeholder:text-zinc-600 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              {...register("notes")}
+            />
+          </label>
+        </div>
+
+        <div className="flex items-center gap-2 border-t border-zinc-800 px-4 py-3">
+          <Button
+            type="submit"
+            variant="primary"
+            className="flex-1"
+            loading={formState.isSubmitting}
+            disabled={!isCreate && !formState.isDirty}
+          >
+            {isCreate ? "Create room" : formState.isDirty ? "Save changes" : "Saved"}
           </Button>
           {isCreate ? (
-            <Button type="button" variant="ghost" onClick={cancelCreate}>
-              Cancel
+            <Button variant="ghost" onClick={cancelCreate}>
+              Discard
             </Button>
           ) : (
-            <Button type="button" variant="danger" onClick={onDelete}>
-              Delete
-            </Button>
+            space && (
+              <IconButton
+                tooltipSide="top"
+                icon={<TrashIcon className="h-4 w-4" />}
+                label="Delete room"
+                shortcut="Del"
+                className="text-red-400 hover:bg-red-950 hover:text-red-300"
+                onClick={() => void removeSpace(space.id)}
+              />
+            )
           )}
         </div>
       </form>

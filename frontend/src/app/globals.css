@@ -7,26 +7,63 @@
   --foreground: #fafafa;
 }
 
+html {
+  height: 100%;
+  color-scheme: dark;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   margin: 0;
   min-height: 100%;
-}
-
-html {
-  height: 100%;
-}
-
-.konvajs-content {
-  background: transparent !important;
-}
-
-.konvajs-content canvas {
-  background: transparent !important;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
   box-sizing: border-box;
+}
+
+.konvajs-content,
+.konvajs-content canvas {
+  background: transparent !important;
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #3f3f46 transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: #3f3f46;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: #52525b;
+  }
+}
+
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The canvas owns pointer gestures; browser text selection breaks drag interactions. */
+.editor-canvas {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }

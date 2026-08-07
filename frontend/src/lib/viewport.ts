@@ -35,6 +35,59 @@ export function computeFitViewport(
   };
 }
 
+export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+export function polygonBounds(polygon: Point[]): Bounds | null {
+  if (polygon.length === 0) {
+    return null;
+  }
+
+  return polygon.reduce<Bounds>(
+    (acc, point) => ({
+      minX: Math.min(acc.minX, point.x),
+      minY: Math.min(acc.minY, point.y),
+      maxX: Math.max(acc.maxX, point.x),
+      maxY: Math.max(acc.maxY, point.y),
+    }),
+    { minX: 1, minY: 1, maxX: 0, maxY: 0 },
+  );
+}
+
+/** Centers a normalized polygon in the container without zooming past `maxScale`. */
+export function computeFocusViewport(
+  containerWidth: number,
+  containerHeight: number,
+  pageWidth: number,
+  pageHeight: number,
+  polygon: Point[],
+  padding = 80,
+  maxScale = 4,
+): Viewport | null {
+  const bounds = polygonBounds(polygon);
+  if (!bounds || containerWidth < 32 || containerHeight < 32) {
+    return null;
+  }
+
+  const width = Math.max((bounds.maxX - bounds.minX) * pageWidth, 1);
+  const height = Math.max((bounds.maxY - bounds.minY) * pageHeight, 1);
+  const availableWidth = Math.max(containerWidth - padding * 2, 1);
+  const availableHeight = Math.max(containerHeight - padding * 2, 1);
+
+  const scale = Math.min(
+    Math.max(Math.min(availableWidth / width, availableHeight / height), 0.05),
+    maxScale,
+  );
+
+  const centerX = ((bounds.minX + bounds.maxX) / 2) * pageWidth * scale;
+  const centerY = ((bounds.minY + bounds.maxY) / 2) * pageHeight * scale;
+
+  return {
+    scale,
+    x: containerWidth / 2 - centerX,
+    y: containerHeight / 2 - centerY,
+  };
+}
+
 export function cloneSpaces(spaces: Space[]): Space[] {
   return spaces.map((space) => ({
     ...space,

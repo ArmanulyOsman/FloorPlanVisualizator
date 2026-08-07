@@ -1,38 +1,53 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { SpinnerIcon } from "@/shared/ui/icons";
 
-type ButtonProps = {
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "subtle";
+type ButtonSize = "sm" | "md";
+
+type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   children: ReactNode;
-  onClick?: () => void;
-  variant?: "primary" | "secondary" | "ghost" | "danger";
-  disabled?: boolean;
-  type?: "button" | "submit";
-  className?: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  type?: "button" | "submit" | "reset";
+  loading?: boolean;
+  icon?: ReactNode;
 };
 
-const variants = {
-  primary: "bg-blue-600 hover:bg-blue-500 text-white",
-  secondary: "bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700",
-  ghost: "bg-transparent hover:bg-zinc-800 text-zinc-300",
-  danger: "bg-red-600 hover:bg-red-500 text-white",
+const variants: Record<ButtonVariant, string> = {
+  primary: "bg-blue-600 text-white shadow-sm hover:bg-blue-500 active:bg-blue-700",
+  secondary:
+    "border border-zinc-700 bg-zinc-800 text-zinc-100 hover:border-zinc-600 hover:bg-zinc-700",
+  ghost: "bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50",
+  danger: "bg-red-600 text-white shadow-sm hover:bg-red-500 active:bg-red-700",
+  subtle: "bg-zinc-800/60 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50",
+};
+
+const sizes: Record<ButtonSize, string> = {
+  sm: "h-8 gap-1.5 px-2.5 text-xs",
+  md: "h-9 gap-2 px-3.5 text-sm",
 };
 
 export function Button({
   children,
-  onClick,
   variant = "secondary",
-  disabled,
+  size = "md",
   type = "button",
+  loading = false,
+  icon,
+  disabled,
   className = "",
+  ...props
 }: ButtonProps) {
   return (
     <button
       type={type}
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-lg px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${className}`}
+      disabled={disabled || loading}
+      className={`inline-flex items-center justify-center whitespace-nowrap rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:pointer-events-none disabled:opacity-40 ${sizes[size]} ${variants[variant]} ${className}`}
+      {...props}
     >
+      {loading ? <SpinnerIcon className="h-3.5 w-3.5" /> : icon}
       {children}
     </button>
   );
