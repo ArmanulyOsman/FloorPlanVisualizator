@@ -67,6 +67,9 @@ public class Space {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "is_active")
+    private Boolean isActive;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();

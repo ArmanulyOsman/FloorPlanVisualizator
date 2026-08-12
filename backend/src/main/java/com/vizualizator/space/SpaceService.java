@@ -103,7 +103,8 @@ public class SpaceService {
 
     public void delete(UUID id) {
         var space = getSpace(id);
-        spaceRepository.delete(space);
+        space.setIsActive(false);
+        spaceRepository.save(space);
     }
 
     public Space getSpace(UUID id) {

@@ -110,9 +110,10 @@ public class FloorService {
     }
 
     public void delete(UUID id) {
-        Floor floor = getFloor(id);
+        var floor = getFloor(id);
+        floor.setIsActive(false);
         fileStorageService.delete(floor.getPdfPath());
-        floorRepository.delete(floor);
+        floorRepository.save(floor);
     }
 
     public Floor getFloor(UUID id) {

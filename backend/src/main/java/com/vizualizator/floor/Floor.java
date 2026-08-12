@@ -63,6 +63,9 @@ public class Floor {
     @OneToMany(mappedBy = "floor")
     private List<Space> spaces = new ArrayList<>();
 
+    @Column(name = "is_active")
+    private Boolean isActive;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();
