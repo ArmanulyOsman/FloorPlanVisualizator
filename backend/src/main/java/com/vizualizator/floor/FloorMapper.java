@@ -2,18 +2,15 @@ package com.vizualizator.floor;
 
 import com.vizualizator.space.SpaceMapper;
 import com.vizualizator.storage.LocalFileStorageService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class FloorMapper {
 
     private final LocalFileStorageService fileStorageService;
     private final SpaceMapper spaceMapper;
-
-    public FloorMapper(LocalFileStorageService fileStorageService, SpaceMapper spaceMapper) {
-        this.fileStorageService = fileStorageService;
-        this.spaceMapper = spaceMapper;
-    }
 
     public FloorSummaryResponse toSummary(Floor floor) {
         return new FloorSummaryResponse(

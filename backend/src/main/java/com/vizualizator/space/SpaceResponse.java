@@ -7,17 +7,17 @@ import java.util.List;
 import java.util.UUID;
 
 public record SpaceResponse(
-        UUID id,
-        UUID floorId,
-        String number,
-        String name,
-        SpaceType type,
-        SpaceStatus status,
-        List<PointDto> polygon,
-        Double geometricArea,
-        Double rentableArea,
-        String notes,
-        Instant createdAt,
-        Instant updatedAt
+    UUID id,
+    UUID floorId,
+    String number,
+    String name,
+    SpaceType type,
+    SpaceStatus status,
+    List<PointDto> polygon,
+    Double geometricArea,
+    Double rentableArea,
+    String notes,
+    Instant createdAt,
+    Instant updatedAt
 ) {
 }

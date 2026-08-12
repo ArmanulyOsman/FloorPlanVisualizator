@@ -7,6 +7,7 @@ import com.vizualizator.common.geometry.AreaCalculator;
 import com.vizualizator.common.geometry.PointDto;
 import com.vizualizator.space.Space;
 import com.vizualizator.storage.LocalFileStorageService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -16,6 +17,7 @@ import java.util.UUID;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class FloorService {
 
     private final FloorRepository floorRepository;
@@ -23,20 +25,6 @@ public class FloorService {
     private final LocalFileStorageService fileStorageService;
     private final PdfMetadataExtractor pdfMetadataExtractor;
     private final FloorMapper floorMapper;
-
-    public FloorService(
-            FloorRepository floorRepository,
-            BuildingService buildingService,
-            LocalFileStorageService fileStorageService,
-            PdfMetadataExtractor pdfMetadataExtractor,
-            FloorMapper floorMapper
-    ) {
-        this.floorRepository = floorRepository;
-        this.buildingService = buildingService;
-        this.fileStorageService = fileStorageService;
-        this.pdfMetadataExtractor = pdfMetadataExtractor;
-        this.floorMapper = floorMapper;
-    }
 
     public FloorResponse create(UUID buildingId, String name, Integer number, Integer pdfPage, MultipartFile file) {
         if (name == null || name.isBlank()) {
@@ -55,10 +43,10 @@ public class FloorService {
 
         PdfMetadataExtractor.PdfPageMetadata metadata = pdfMetadataExtractor.extract(file, pageIndex);
 
-        UUID floorId = UUID.randomUUID();
+        var floorId = UUID.randomUUID();
         LocalFileStorageService.StoredFile storedFile = fileStorageService.storePdf(buildingId, floorId, file);
 
-        Floor floor = new Floor();
+        var floor = new Floor();
         floor.setId(floorId);
         floor.setBuilding(building);
         floor.setName(name.trim());
@@ -68,27 +56,26 @@ public class FloorService {
         floor.setHeight((double) metadata.height());
         floor.setPdfPath(storedFile.relativePath());
 
-        Floor savedFloor = floorRepository.save(floor);
+        var savedFloor = floorRepository.save(floor);
         return floorMapper.toResponse(savedFloor);
     }
 
     @Transactional(readOnly = true)
     public FloorResponse findById(UUID id) {
-        Floor floor = floorRepository.findByIdWithSpaces(id)
+        var floor = floorRepository.findByIdWithSpaces(id)
                 .orElseThrow(() -> new NotFoundException("Floor not found: " + id));
         return floorMapper.toResponse(floor);
     }
 
     @Transactional(readOnly = true)
     public List<FloorSummaryResponse> findByBuildingId(UUID buildingId) {
-        buildingService.getBuilding(buildingId);
         return floorRepository.findByBuildingIdOrderByNumberAsc(buildingId).stream()
                 .map(floorMapper::toSummary)
                 .toList();
     }
 
     public FloorResponse update(UUID id, UpdateFloorRequest request) {
-        Floor floor = getFloor(id);
+        var floor = getFloor(id);
 
         if (request.name() != null) {
             if (request.name().isBlank()) {

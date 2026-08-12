@@ -12,6 +12,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -21,6 +23,8 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
+@Getter
+@Setter
 @Table(name = "spaces")
 public class Space {
 
@@ -76,93 +80,5 @@ public class Space {
     @PreUpdate
     void onUpdate() {
         updatedAt = Instant.now();
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public void setId(UUID id) {
-        this.id = id;
-    }
-
-    public Floor getFloor() {
-        return floor;
-    }
-
-    public void setFloor(Floor floor) {
-        this.floor = floor;
-    }
-
-    public String getNumber() {
-        return number;
-    }
-
-    public void setNumber(String number) {
-        this.number = number;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public SpaceType getType() {
-        return type;
-    }
-
-    public void setType(SpaceType type) {
-        this.type = type;
-    }
-
-    public SpaceStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(SpaceStatus status) {
-        this.status = status;
-    }
-
-    public List<SpacePoint> getPolygon() {
-        return polygon;
-    }
-
-    public void setPolygon(List<SpacePoint> polygon) {
-        this.polygon = polygon;
-    }
-
-    public Double getGeometricArea() {
-        return geometricArea;
-    }
-
-    public void setGeometricArea(Double geometricArea) {
-        this.geometricArea = geometricArea;
-    }
-
-    public Double getRentableArea() {
-        return rentableArea;
-    }
-
-    public void setRentableArea(Double rentableArea) {
-        this.rentableArea = rentableArea;
-    }
-
-    public String getNotes() {
-        return notes;
-    }
-
-    public void setNotes(String notes) {
-        this.notes = notes;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 }

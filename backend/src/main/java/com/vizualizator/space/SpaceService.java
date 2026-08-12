@@ -7,6 +7,7 @@ import com.vizualizator.common.geometry.PointDto;
 import com.vizualizator.common.geometry.PolygonValidator;
 import com.vizualizator.floor.Floor;
 import com.vizualizator.floor.FloorService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,26 +16,21 @@ import java.util.UUID;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class SpaceService {
 
     private final SpaceRepository spaceRepository;
     private final FloorService floorService;
     private final SpaceMapper spaceMapper;
 
-    public SpaceService(SpaceRepository spaceRepository, FloorService floorService, SpaceMapper spaceMapper) {
-        this.spaceRepository = spaceRepository;
-        this.floorService = floorService;
-        this.spaceMapper = spaceMapper;
-    }
-
     public SpaceResponse create(CreateSpaceRequest request) {
-        Floor floor = floorService.getFloor(request.floorId());
+        var floor = floorService.getFloor(request.floorId());
 
         if (spaceRepository.existsByFloorIdAndNumber(floor.getId(), request.number())) {
             throw new ValidationException("Room number already exists on this floor");
         }
 
-        List<PointDto> normalizedPolygon = PolygonValidator.normalizePolygon(request.polygon());
+        var normalizedPolygon = PolygonValidator.normalizePolygon(request.polygon());
 
         Space space = new Space();
         space.setFloor(floor);
@@ -47,7 +43,7 @@ public class SpaceService {
         space.setNotes(request.notes());
         space.setGeometricArea(calculateGeometricArea(floor, normalizedPolygon));
 
-        Space saved = spaceRepository.save(space);
+        var saved = spaceRepository.save(space);
         return spaceMapper.toResponse(saved);
     }
 
@@ -106,7 +102,7 @@ public class SpaceService {
     }
 
     public void delete(UUID id) {
-        Space space = getSpace(id);
+        var space = getSpace(id);
         spaceRepository.delete(space);
     }
 

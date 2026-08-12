@@ -3,6 +3,7 @@ package com.vizualizator.building;
 import com.vizualizator.common.exception.NotFoundException;
 import com.vizualizator.floor.FloorMapper;
 import com.vizualizator.floor.FloorRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,21 +12,12 @@ import java.util.UUID;
 
 @Service
 @Transactional
+@RequiredArgsConstructor
 public class BuildingService {
 
     private final BuildingRepository buildingRepository;
     private final FloorRepository floorRepository;
     private final FloorMapper floorMapper;
-
-    public BuildingService(
-            BuildingRepository buildingRepository,
-            FloorRepository floorRepository,
-            FloorMapper floorMapper
-    ) {
-        this.buildingRepository = buildingRepository;
-        this.floorRepository = floorRepository;
-        this.floorMapper = floorMapper;
-    }
 
     public BuildingResponse create(CreateBuildingRequest request) {
         Building building = new Building();

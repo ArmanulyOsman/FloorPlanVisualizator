@@ -12,7 +12,7 @@ public interface FloorRepository extends JpaRepository<Floor, UUID> {
 
     List<Floor> findByBuildingIdOrderByNumberAsc(UUID buildingId);
 
-    boolean existsByBuildingIdAndNumber(UUID buildingId, Integer number);
+    Boolean existsByBuildingIdAndNumber(UUID buildingId, Integer number);
 
     @Query("""
             select f from Floor f

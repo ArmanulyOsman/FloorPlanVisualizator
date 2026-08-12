@@ -7,11 +7,11 @@ import java.util.List;
 import java.util.UUID;
 
 public record BuildingResponse(
-        UUID id,
-        String name,
-        String address,
-        List<FloorSummaryResponse> floors,
-        Instant createdAt,
-        Instant updatedAt
+    UUID id,
+    String name,
+    String address,
+    List<FloorSummaryResponse> floors,
+    Instant createdAt,
+    Instant updatedAt
 ) {
 }

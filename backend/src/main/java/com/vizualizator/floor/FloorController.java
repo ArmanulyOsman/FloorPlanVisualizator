@@ -1,5 +1,6 @@
 package com.vizualizator.floor;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,17 +19,14 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
+@RequiredArgsConstructor
 @RequestMapping("/api/floors")
 public class FloorController {
 
     private final FloorService floorService;
 
-    public FloorController(FloorService floorService) {
-        this.floorService = floorService;
-    }
-
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public FloorResponse create(
             @RequestParam UUID buildingId,
             @RequestParam String name,
